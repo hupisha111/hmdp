@@ -1,13 +1,15 @@
 package com.hmdp.utils;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 public class RedisLock implements Lock {
 
+    private final String name;
     private StringRedisTemplate stringRedisTemplate;
-    private String name;
     private static final String keyPrefix = "lock:";
 
     public RedisLock(StringRedisTemplate stringRedisTemplate, String name) {
@@ -23,6 +25,7 @@ public class RedisLock implements Lock {
     public Boolean tryLock(Long expireTime) {
         Long threadId = Thread.currentThread().getId();
         final Boolean isLock = stringRedisTemplate.opsForValue().setIfAbsent(keyPrefix + name, threadId+"", expireTime, TimeUnit.SECONDS);
+        log.info("尝试往redis写入锁");
         return isLock != null ? isLock.booleanValue() : false;
     }
 

@@ -8,8 +8,10 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.RedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +24,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private ISeckillVoucherService seckillVoucherService;
-
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
     @Resource
     private RedisIdWorker redisIdWorker;
 
@@ -35,11 +38,22 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
         String lockKey = userId + ":" + voucherId;
 
-        synchronized (lockKey.intern()) {
-            // 通过当前 Spring 代理再次调用本类的公开事务方法。
+        //这里我们通过redis分布式锁来串联起来所有的集群.
+        RedisLock redisLock = new RedisLock(stringRedisTemplate, "seckillVoucher:" + userId + ":" + voucherId);
+        final Boolean isLock = redisLock.tryLock(1200L);
+        if(!isLock){
+            return Result.fail("该优惠券只能购买一张");
+        }
+        // 通过当前 Spring 代理再次调用本类的公开事务方法。
+        try {
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
+        } catch (IllegalStateException e) {
+            throw new RuntimeException(e);
+        } finally {
+            redisLock.unlock();
         }
+
     }
 
     /**
