@@ -36,7 +36,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     public Result buySeckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
-        String lockKey = userId + ":" + voucherId;
 
         //这里我们通过redis分布式锁来串联起来所有的集群.
         RedisLock redisLock = new RedisLock(stringRedisTemplate, "seckillVoucher:" + userId + ":" + voucherId);

@@ -29,7 +29,7 @@ public class VoucherOrderController {
     购买秒杀优惠券
      */
     @PostMapping("seckill/{id}")
-    public Result seckillVoucher(@PathVariable("id") Long voucherId) {
+    public Result buySeckillVoucher(@PathVariable("id") Long voucherId) {
         return voucherOrderService.buySeckillVoucher(voucherId);
     }
 }
