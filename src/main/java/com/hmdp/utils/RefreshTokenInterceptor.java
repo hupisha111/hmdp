@@ -27,7 +27,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         //1.从request中取出header的token
-        String token = request.getHeader("authorization");
+        String token = (String) request.getHeader("authorization");
         //2.拿token去redis查这个user的信息.
         String tokenKey = LOGIN_USER_KEY + token;
         //这里加个val这个数据类型来接收为什么不会报错,它是什么意思? val自动定义为应当的属性.

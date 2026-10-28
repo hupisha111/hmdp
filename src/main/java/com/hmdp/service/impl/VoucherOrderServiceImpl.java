@@ -2,21 +2,29 @@ package com.hmdp.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
-import com.hmdp.utils.RedisLock;
 import com.hmdp.utils.UserHolder;
-import org.springframework.aop.framework.AopContext;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static com.hmdp.utils.RedisConstants.SECKILL_ORDER_KEY;
+import static com.hmdp.utils.RedisConstants.SECKILL_STOCK_KEY;
 
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder>
@@ -29,30 +37,66 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedisIdWorker redisIdWorker;
 
+    private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
+    static {
+        SECKILL_SCRIPT = new DefaultRedisScript<>();
+        SECKILL_SCRIPT.setResultType(Long.class);//这一步是何意味?何作用?:lua脚本返回0.1.2,这里是告诉java返回值当做什么类型的数据.
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("Seckill.Lua"));//这一步是何意味?何作用? :就是加载文件.
+    }
+
+    @PostConstruct
+    public void init() {
+        executorService.submit(new OrderExecutor());
+    }
+
+    //2.2.1创建一个阻塞队列去存储订单.
+    private BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024*1024);
+    //2.2.2定义一个线程池,由线程池里的线程去干任务.
+    private ExecutorService executorService =  Executors.newSingleThreadExecutor();
+    //2.2.3定义一个任务orderTask,它里面写好如何去干后面的活的逻辑,runnable是个类.
+    private class OrderExecutor implements Runnable {
+        @Override
+        public void run() {
+            while (true) {
+                //从阻塞队列中取出任务
+                try {
+                    final VoucherOrder order = orderTasks.take();
+                    //操作数据库.
+                    createVoucherOrder(order);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+    }
+    //2.2.4那么什么时候线程池里面的线程去干这个事情呢->阻塞队列里面有任务的时候,那为什么需要一个init函数去干这个活呢?:
+    //因为一个init可以在应用一开始就启动这个监听阻塞队列的线程,并准备执行任务.而这个模块是由springboot管理的,所以线程都是进入这个对象进行操作,它们都会把订单放到阻塞队列中,然后都由线程池去处理.
+
     /**
      * 外层方法只负责按用户和优惠券加锁。
      * 不要在此方法上加 @Transactional，否则事务可能在此锁释放后才提交。
      */
     @Override
     public Result buySeckillVoucher(Long voucherId) {
-        Long userId = UserHolder.getUser().getId();
-
-        //这里我们通过redis分布式锁来串联起来所有的集群.
-        RedisLock redisLock = new RedisLock(stringRedisTemplate, "seckillVoucher:" + userId + ":" + voucherId);
-        final Boolean isLock = redisLock.tryLock(1200L);
-        if(!isLock){
-            return Result.fail("该优惠券只能购买一张");
+        //1.通过Lua脚本去做能否下单的判断
+        //1.1需要去执行Lua脚本,需要Lua脚本,参数
+        final Long userId = UserHolder.getUser().getId();
+        List<String> Keys = new ArrayList<>();
+        Keys.add(SECKILL_STOCK_KEY + voucherId);
+        Keys.add(SECKILL_ORDER_KEY + voucherId);
+        final Long execute = stringRedisTemplate.execute(SECKILL_SCRIPT, Keys, userId.toString());
+        //1.2判断返回值
+        if(execute > 0){
+            return execute == 1 ?  Result.fail("库存不足") : Result.fail("不可重复购买");
         }
-        // 通过当前 Spring 代理再次调用本类的公开事务方法。
-        try {
-            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return proxy.createVoucherOrder(voucherId);
-        } catch (IllegalStateException e) {
-            throw new RuntimeException(e);
-        } finally {
-            redisLock.unlock();
-        }
-
+        //2.1首先是创建订单(从thread里面拿userId).然后得到一个voucherOrder.
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setVoucherId(voucherId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setId(redisIdWorker.nextId("order"));
+        orderTasks.offer(voucherOrder);
+        //2.3无需等待线程池完成操作,立刻返回.
+        return Result.ok("购买成功,订单id是" + voucherOrder.getId());
     }
 
     /**
@@ -60,54 +104,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      * 然后调用才返回到外层 synchronized 代码块并释放锁。
      */
     @Override
-    @Transactional
-    public Result createVoucherOrder(Long voucherId) {
-        Long userId = UserHolder.getUser().getId();
-
-        // 查询秒杀券并校验活动时间。
-        SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
-        if (voucher == null) {
-            return Result.fail("秒杀券不存在");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        if (voucher.getBeginTime().isAfter(now)) {
-            return Result.fail("秒杀活动尚未开启");
-        }
-        if (voucher.getEndTime().isBefore(now)) {
-            return Result.fail("秒杀活动已经结束");
-        }
-
-        // 在锁内查重，避免同一 JVM 内同一用户同一券的请求同时通过。
-        long count = query()
-                .eq("user_id", userId)
-                .eq("voucher_id", voucherId)
-                .count();
-        if (count > 0) {
-            return Result.fail("您已购买过该优惠券，不能再次购买");
-        }
-
-        // 条件更新本身承担库存 CAS：库存大于 0 才扣减。
-        boolean updated = seckillVoucherService.update()
-                .setSql("stock = stock - 1")
-                .eq("voucher_id", voucherId)
-                .gt("stock", 0)
-                .update();
-        if (!updated) {
-            return Result.fail("库存不足");
-        }
-
-        // 当前表要求显式提供订单 id 和 user_id。
-        //TODO 为什么userId一定要默认值?,而且我这里不是传了userId的值吗
-        VoucherOrder order = new VoucherOrder();
-        order.setId(redisIdWorker.nextId("order"));
-        order.setUserId(userId);
-        order.setVoucherId(voucherId);
-        if (!save(order)) {
+    public void createVoucherOrder(VoucherOrder voucherOrder) {
+        if (!save(voucherOrder)) {
             // 抛出运行时异常，让事务回滚已扣减的库存。
             throw new IllegalStateException("创建秒杀订单失败");
         }
-
-        return Result.ok(order.getId());
     }
 }
+
+
+
