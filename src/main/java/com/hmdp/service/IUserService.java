@@ -19,7 +19,9 @@ import javax.servlet.http.HttpServletResponse;
  */
 public interface IUserService extends IService<User> {
 
-    Result sendCode(String phone, HttpSession session);
+    Result sendCode(String phone);
+
+    Result queryUserById(Long userId);
 
     Result login(LoginFormDTO loginForm, HttpSession session, HttpServletResponse response);
 }

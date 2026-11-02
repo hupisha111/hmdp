@@ -43,7 +43,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private StringRedisTemplate stringRedisTemplate;
 
     @Override
-    public Result sendCode(String phone,  HttpSession session) {
+    public Result queryUserById(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            return Result.fail("用户不存在！");
+        }
+        return Result.ok(BeanUtil.copyProperties(user, UserDTO.class));
+    }
+
+    @Override
+    public Result sendCode(String phone) {
         //第一步对手机号校验是否合规.
         if(RegexUtils.isPhoneInvalid(phone)) {
             //TODO不合规的话报错,抛出异常.这里是用result.fail()代替了抛出异常,如果抛出异常怎么写?
