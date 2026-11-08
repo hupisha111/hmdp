@@ -18,6 +18,5 @@ end
 redis.call('incrby',stockKey,-1)
 --3.2创建set集合(判断有哪些客户已经买了哪些优惠券.)
 redis.call('sadd',orderKey,userId)
---3.3 TODO创建订单,并放到stream的消息队列中.应该是在java就把order变为map,然后这边传进来一个map,进行存储.
-redis.call('xadd','stream.orders','*','userId',userId,'voucherId',voucherId,'id',orderId)
+--4.资格判断没问题,回到把消息放进mq队列,
 return 0

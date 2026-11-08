@@ -11,15 +11,23 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SystemConstants;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 
 import java.time.LocalDateTime;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -210,6 +218,45 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //2.删除redis缓存
         stringRedisTemplate.delete(CACHE_SHOP_KEY + id);
         return Result.ok();
+    }
+
+    @Override
+    public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
+        //1.redis查询拿到List<shop>.
+        //1.1拼接key和处理current
+        String key = SHOP_GEO_KEY + typeId;
+        int from = (current - 1) * SystemConstants.DEFAULT_PAGE_SIZE;
+        int end = current * SystemConstants.DEFAULT_PAGE_SIZE;
+        //1.2.调用redis方法查询.
+        final GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate.opsForGeo().search(key,
+                GeoReference.fromCoordinate(new Point(x, y)),
+                new Distance(5000),
+                RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
+                        .includeDistance()
+                        .sortAscending()
+                        .limit(end)
+        );
+        //1.3拿到results,弄清楚里面的数据都是什么,如何处理,还要考虑空集的情况.
+        if(results == null ){
+            return Result.ok(Collections.emptyList());
+        }
+        final List<GeoResult<RedisGeoCommands.GeoLocation<String>>> list = results.getContent();
+        List<Long> shopIdStrList = new ArrayList<>();
+        Map<Long,Double> shopIdMap = new HashMap<>();
+        list.stream().skip(from).forEach(item -> {
+            final RedisGeoCommands.GeoLocation<String> content = item.getContent();
+            final String shopIdStr = content.getName();
+            final Distance distance = item.getDistance();
+            shopIdMap.put(Long.valueOf(shopIdStr), distance.getValue());
+            shopIdStrList.add(Long.valueOf(shopIdStr));
+        });
+        //2.去数据库查询
+        final String idStr = StrUtil.join(",", shopIdStrList);
+        final List<Shop> shopList = query().in("id", shopIdStrList).last("ORDER BY FIELD(id," + idStr + ")").list();
+        //2.1 注意数据类型,注意返回的数据每一个类型和结构都要get到.
+        shopList.forEach(shop -> {shop.setDistance(shopIdMap.get(shop.getId()));});
+        //3.返回.
+        return Result.ok(shopList);
     }
 
     private Boolean tryLock(String lockKey) {

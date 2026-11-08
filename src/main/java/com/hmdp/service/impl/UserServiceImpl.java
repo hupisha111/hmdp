@@ -12,6 +12,7 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,8 @@ import javax.annotation.Resource;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +44,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Override
+    public Result sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDate today = LocalDate.now();
+        String key = USER_SIGN_KEY + userId + ":" + today.format(DateTimeFormatter.BASIC_ISO_DATE);
+        // Bitmap 的偏移从 0 开始，当月第几天就写入第几天减 1 的位置。
+        stringRedisTemplate.opsForValue().setBit(key, today.getDayOfMonth() - 1, true);
+        return Result.ok();
+    }
 
     @Override
     public Result queryUserById(Long userId) {

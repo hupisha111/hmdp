@@ -6,6 +6,7 @@ import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.SeckillVoucher;
+import com.hmdp.entity.Shop;
 import com.hmdp.entity.User;
 import com.hmdp.entity.Voucher;
 import com.hmdp.service.impl.SeckillVoucherServiceImpl;
@@ -17,6 +18,10 @@ import com.hmdp.utils.RedisIdWorker;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.DefaultStringRedisConnection;
+import org.springframework.data.redis.connection.StringRedisConnection;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.junit4.SpringRunner;
 
@@ -37,6 +42,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest
@@ -56,7 +63,7 @@ public class HmDianPingApplicationTests {
 
     @Test
     public void testSaveShop() {
-        shopService.saveShop2Redis(1L, 10L);
+        shopService.saveShop2Redis(1L, -1L);
     }
 
     @Test
@@ -117,5 +124,63 @@ public class HmDianPingApplicationTests {
                 writer.newLine();
             }
         }
+    }
+
+    @Test
+    public void saveShopWithGeo2Redis() {
+        //需求是把商铺(坐标和商铺id)传入redis.
+        //1.查询数据库
+        final List<Shop> list = shopService.list();
+        //2.依据商铺typeid进行分类,用一个map保存,key是typeid,value就是shop的集合?
+        Map <Long,List<Shop>> map = new HashMap<>();
+        map = list.stream().collect(Collectors.groupingBy(Shop::getTypeId));
+        //3.redis的key用typeId拼接好,然后value是location(需要id和坐标信息).
+        for (Map.Entry <Long,List<Shop>> entry : map.entrySet()) {
+            String key = "shop:geo:" +  entry.getKey();
+            List<Shop> shops = entry.getValue();
+            for (Shop shop : shops) {
+                stringRedisTemplate.opsForGeo().add(key, new Point(shop.getX(),shop.getY()), shop.getId().toString());
+            }
+        }
+    }
+
+    /**
+     * 慢版(原写法):每攒满 1000 个值同步发一次 PFADD,共 1000 次网络往返。
+     * 实测在 Windows + Docker Desktop(WSL2 端口转发)下约 7 分半。
+     * 保留用于和下面的管道版做对比。
+     */
+    @Test
+    public void HyperLogTestSerial() {
+        String[] values = new String[1000];
+        int j = 0;
+        for (int i = 0; i < 1000000; i++) {
+            j = i % 1000;
+            values[j] = "values_" + i;
+            if (j == 999) {
+                stringRedisTemplate.opsForHyperLogLog().add("hy2", values);
+            }
+        }
+    }
+
+    /**
+     * 管道版:1000 条 PFADD 全部写入管道,一次 flush 完成,只发生一次网络往返。
+     * 实测 Redis 服务端处理 100 万个值约 1 秒,因此这里预计数秒内完成。
+     * 注意:若把数量提到 1000 万(10000 条命令),建议每 1000~5000 条命令分段
+     * executePipelined,避免管道缓冲区过大。
+     */
+    @Test
+    public void HyperLogTest() {
+        stringRedisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            StringRedisConnection conn = new DefaultStringRedisConnection(connection);
+            String[] values = new String[1000];
+            for (int i = 0; i < 1000000; i++) {
+                int j = i % 1000;
+                values[j] = "values_" + i;
+                if (j == 999) {
+                    conn.pfAdd("hy2", values);
+                }
+            }
+            return null;
+        });
     }
 }
