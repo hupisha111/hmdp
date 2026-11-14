@@ -5,7 +5,7 @@ spring:
     name: hmdp
   datasource:
     driver-class-name: com.mysql.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&allowPublicKeyRetrieval=true
     username: hupisha
     password: h3322432
   redis:
@@ -20,11 +20,27 @@ spring:
         time-between-eviction-runs: 10s
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
+  task:
+    scheduling:
+      thread-name-prefix: hmdp-scan-   # 定时任务线程名，日志里一眼能认出来
+      pool:
+        size: 2                        # 默认只有 1 个线程，所有 @Scheduled 会排队串行
   rabbitmq:
     username: hupisha
     password: h3322432
     host: 127.0.0.1
     port: 5672
+    listener:
+      simple:
+        acknowledge-mode: auto            # 正常返回才 ack，抛异常走重试
+        default-requeue-rejected: false  # 重试耗尽后 reject 且不回原队列，配合队列 DLX 进死信
+        prefetch: 10
+        retry:
+          enabled: true                  # 本地重试：同线程重调 listener，不是退回 broker 重投
+          max-attempts: 3
+          initial-interval: 2000
+          multiplier: 2
+          max-interval: 10000
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:

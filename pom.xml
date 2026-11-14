@@ -15,6 +15,9 @@
     <description>Demo project for Spring Boot</description>
     <properties>
         <java.version>1.8</java.version>
+        <!-- 覆盖 spring-boot-dependencies 2.7.18 管理的 lombok 1.18.30；
+             该版本在 JDK 25 下会抛 ExceptionInInitializerError，1.18.46 已实测可编译 -->
+        <lombok.version>1.18.46</lombok.version>
     </properties>
     <dependencies>
         <dependency>

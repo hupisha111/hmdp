@@ -237,7 +237,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                         .limit(end)
         );
         //1.3拿到results,弄清楚里面的数据都是什么,如何处理,还要考虑空集的情况.
-        if(results == null ){
+        if(results == null || results.getContent().isEmpty()){
             return Result.ok(Collections.emptyList());
         }
         final List<GeoResult<RedisGeoCommands.GeoLocation<String>>> list = results.getContent();
@@ -251,6 +251,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             shopIdStrList.add(Long.valueOf(shopIdStr));
         });
         //2.去数据库查询
+        //2.1因为有skip,所以数据库查询之前,还是判断一下shopIdStrList是否为空把.
+        if(shopIdStrList.isEmpty()){
+            return Result.ok(Collections.emptyList());
+        }
         final String idStr = StrUtil.join(",", shopIdStrList);
         final List<Shop> shopList = query().in("id", shopIdStrList).last("ORDER BY FIELD(id," + idStr + ")").list();
         //2.1 注意数据类型,注意返回的数据每一个类型和结构都要get到.
