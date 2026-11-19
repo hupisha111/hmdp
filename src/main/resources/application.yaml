@@ -3,15 +3,17 @@ server:
 spring:
   application:
     name: hmdp
+  # 口令等敏感项统一放在 application-local.yaml（已 gitignore，不入库）。
+  # 新环境请先复制 application-local.yaml.example 为 application-local.yaml 再填空。
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
     driver-class-name: com.mysql.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&allowPublicKeyRetrieval=true
     username: hupisha
-    password: h3322432
   redis:
     host: 127.0.0.1
     port: 6379
-    password: h3322432
     lettuce:
       pool:
         max-active: 10
@@ -27,7 +29,6 @@ spring:
         size: 2                        # 默认只有 1 个线程，所有 @Scheduled 会排队串行
   rabbitmq:
     username: hupisha
-    password: h3322432
     host: 127.0.0.1
     port: 5672
     listener:

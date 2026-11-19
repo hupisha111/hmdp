@@ -31,3 +31,14 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 本地敏感与草稿：不入库 ###
+/src/main/resources/application-local.yaml
+/.workbuddy/
+/jmeter.log
+/jmeter-users.csv
+/简历-*.md
+
+### 压测材料：含「可直接写进简历的句子」等段落，清理后再决定是否公开 ###
+/压测方案.md
+/压测结果报告.md

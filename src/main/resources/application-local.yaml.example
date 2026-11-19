@@ -1,0 +1,9 @@
+# 复制本文件为 application-local.yaml，填入本机口令即可启动。
+# application-local.yaml 已被 .gitignore 排除，不会提交。
+spring:
+  datasource:
+    password: your-mysql-password
+  redis:
+    password: your-redis-password
+  rabbitmq:
+    password: your-rabbitmq-password
