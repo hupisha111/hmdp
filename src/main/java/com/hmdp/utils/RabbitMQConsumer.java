@@ -94,7 +94,7 @@ public class RabbitMQConsumer {
             /*
              * 死信队列没有配 DLX，抛异常会 reject 且不回队（消息直接丢），
              * 而且这个消费者同样吃 retry.max-attempts=3。所以不抛，
-             * 上面的 WARN 已留下完整 body，这里只补堆栈，正常返回让容器 ack。
+             * 上面的 WARN 已留下完整 body，这里只补到堆栈，正常返回让容器 ack。
              * 生产环境：把留痕改成落 tb_dead_letter 表 + 告警 + 人工重放入口。
              */
             log.error("死信补偿失败，消息将被确认并移出队列，可凭上方 body 人工处理", e);

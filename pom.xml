@@ -37,11 +37,15 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- 由 spring-boot 2.7.18 管理为 8.0.33。
+             原来写死 5.1.47（2019 年的驱动），它不支持 MySQL 8+ 的默认认证插件
+             caching_sha2_password，连 8.0/9.x/26.x 的库会报
+             "Unable to load authentication plugin"。 -->
         <dependency>
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.33</version>
             <scope>runtime</scope>
-            <version>5.1.47</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -77,6 +81,24 @@
 
     <build>
         <plugins>
+            <!-- 显式声明 Lombok 注解处理器。
+                 JDK 23 起 javac 不再隐式扫描 classpath 上的处理器，
+                 而 spring-boot 2.7 引用的 maven-compiler-plugin 3.10.1 不会补 -proc:full，
+                 结果是 @Data/@Slf4j 全部不生成，报大量"找不到符号"。
+                 写死 processorPath 后可跨 JDK 版本稳定生效。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
